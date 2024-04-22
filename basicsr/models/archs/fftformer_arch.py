@@ -4,16 +4,16 @@ import torch.nn.functional as F
 import numbers
 from einops import rearrange
 
-
+@torch.compile
 def to_3d(x):
     return rearrange(x, 'b c h w -> b (h w) c')
 
-
+@torch.compile
 def to_4d(x, h, w):
     return rearrange(x, 'b (h w) c -> b c h w', h=h, w=w)
 
-
 class BiasFree_LayerNorm(nn.Module):
+    @torch.compile
     def __init__(self, normalized_shape):
         super(BiasFree_LayerNorm, self).__init__()
         if isinstance(normalized_shape, numbers.Integral):
@@ -25,10 +25,10 @@ class BiasFree_LayerNorm(nn.Module):
         self.weight = nn.Parameter(torch.ones(normalized_shape))
         self.normalized_shape = normalized_shape
 
+    @torch.compile
     def forward(self, x):
         sigma = x.var(-1, keepdim=True, unbiased=False)
         return x / torch.sqrt(sigma + 1e-5) * self.weight
-
 
 class WithBias_LayerNorm(nn.Module):
     def __init__(self, normalized_shape):
@@ -48,7 +48,6 @@ class WithBias_LayerNorm(nn.Module):
         sigma = x.var(-1, keepdim=True, unbiased=False)
         return (x - mu) / torch.sqrt(sigma + 1e-5) * self.weight + self.bias
 
-
 class LayerNorm(nn.Module):
     def __init__(self, dim, LayerNorm_type):
         super(LayerNorm, self).__init__()
@@ -60,7 +59,6 @@ class LayerNorm(nn.Module):
     def forward(self, x):
         h, w = x.shape[-2:]
         return to_4d(self.body(to_3d(x)), h, w)
-
 
 class DFFN(nn.Module):
     def __init__(self, dim, ffn_expansion_factor, bias):
@@ -94,7 +92,6 @@ class DFFN(nn.Module):
         x = F.gelu(x1) * x2
         x = self.project_out(x)
         return x
-
 
 class FSAS(nn.Module):
     def __init__(self, dim, bias):
@@ -155,7 +152,6 @@ class TransformerBlock(nn.Module):
 
         return x
 
-
 class Fuse(nn.Module):
     def __init__(self, n_feat):
         super(Fuse, self).__init__()
@@ -200,7 +196,6 @@ class Downsample(nn.Module):
 
     def forward(self, x):
         return self.body(x)
-
 
 class Upsample(nn.Module):
     def __init__(self, n_feat):

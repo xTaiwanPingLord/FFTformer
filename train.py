@@ -18,11 +18,10 @@ from basicsr.utils import (MessageLogger, check_resume, get_env_info,
 from basicsr.utils.dist_util import get_dist_info, init_dist
 from basicsr.utils.options import dict2str, parse
 
-
 def parse_options(is_train=True):
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '-opt', type=str, required=True, help='Path to option YAML file.')
+        '-opt', type=str, required=False, help='Path to option YAML file.', default='options/train/GoPro.yml')
     parser.add_argument(
         '--launcher',
         choices=['none', 'pytorch', 'slurm'],
@@ -231,12 +230,14 @@ def main():
             current_iter += 1
             if current_iter > total_iters:
                 break
+
+            # training
+            with torch.cuda.amp.autocast_mode.autocast():
+                model.feed_data(train_data, is_val=False)
+                result_code = model.optimize_parameters(current_iter, tb_logger)
             # update learning rate
             model.update_learning_rate(
                 current_iter, warmup_iter=opt['train'].get('warmup_iter', -1))
-            # training
-            model.feed_data(train_data, is_val=False)
-            result_code = model.optimize_parameters(current_iter, tb_logger)
             # if result_code == -1 and tb_logger:
             #     print('loss explode .. ')
             #     exit(0)
@@ -256,7 +257,7 @@ def main():
                 model.save(epoch, current_iter)
 
             # validation
-            if opt.get('val') is not None and (current_iter % opt['val']['val_freq'] == 0 or current_iter == 1000):
+            if opt.get('val') is not None and (current_iter % opt['val']['val_freq'] == 0 or current_iter == 100):
             # if opt.get('val') is not None and (current_iter % opt['val']['val_freq'] == 0):
                 rgb2bgr = opt['val'].get('rgb2bgr', True)
                 # wheather use uint8 image to compute metrics

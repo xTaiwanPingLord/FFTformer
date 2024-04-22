@@ -23,6 +23,26 @@ def mse_loss(pred, target):
 #     return torch.sqrt((pred - target)**2 + eps)
 
 
+class CharbonnierLoss(torch.nn.Module):
+    def __init__(self, loss_weight, reduction, epsilon) -> None:
+        super().__init__()
+        self.loss_weight = loss_weight
+        self.reduction = reduction
+        self.epsilon_square = np.square(epsilon)
+
+    def forward(self, X, Y):
+        # http://xxx.itp.ac.cn/pdf/1710.01992
+        # mean of sqrt(square(GT-HQ) + square(epsilon))
+        if self.reduction == 'mean':
+            return self.loss_weight * torch.mean(torch.sqrt(torch.square(torch.sub(X, Y))
+                                     + self.epsilon_square))
+        elif self.reduction == 'sum':
+            return self.loss_weight * torch.sum(torch.sqrt(torch.square(torch.sub(X, Y))
+                                     + self.epsilon_square))
+        else:
+            return self.loss_weight * torch.sqrt(torch.square(torch.sub(X, Y)) + self.epsilon_square)
+
+
 class L1Loss(nn.Module):
     """L1 (mean absolute error, MAE) loss.
 

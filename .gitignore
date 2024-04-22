@@ -1,0 +1,6 @@
+/.eggs
+/basicsr.egg-info
+/basicsr/__pycache__
+*.pyc
+/datasets
+/experiments

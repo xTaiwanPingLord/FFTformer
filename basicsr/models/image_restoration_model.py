@@ -72,8 +72,12 @@ class ImageRestorationModel(BaseModel):
 
         # set up optimizers and schedulers
         self.setup_optimizers()
+        self.setup_scalers()
         self.setup_schedulers()
 
+    def setup_scalers(self):
+        self.scaler = torch.cuda.amp.GradScaler()
+        
     def setup_optimizers(self):
         train_opt = self.opt['train']
         optim_params = []
@@ -192,8 +196,6 @@ class ImageRestorationModel(BaseModel):
         self.lq = self.origin_lq
 
     def optimize_parameters(self, current_iter, tb_logger):
-        self.optimizer_g.zero_grad()
-
         if self.opt['train'].get('mixup', False):
             self.mixup_aug()
 
@@ -223,16 +225,19 @@ class ImageRestorationModel(BaseModel):
 
         l_total = l_total + 0. * sum(p.sum() for p in self.net_g.parameters())
 
-        l_total = l_total
+        l_total = l_total / self.opt['train']['accumulation_steps']
 
-        l_total.backward()
+        self.scaler.scale(l_total).backward()
 
         ######################################################
-
-        use_grad_clip = self.opt['train'].get('use_grad_clip', True)
-        if use_grad_clip:
-            torch.nn.utils.clip_grad_norm_(self.net_g.parameters(), 0.01)
-        self.optimizer_g.step()
+        if current_iter % self.opt['train']['accumulation_steps'] == 0:
+            use_grad_clip = self.opt['train'].get('use_grad_clip', True)
+            if use_grad_clip:
+                torch.nn.utils.clip_grad_norm_(self.net_g.parameters(), 0.01)
+            
+            self.scaler.step(self.optimizer_g)
+            self.scaler.update()
+            self.optimizer_g.zero_grad()
 
         self.log_dict = self.reduce_loss_dict(loss_dict)
 
@@ -387,10 +392,136 @@ class ImageRestorationModel(BaseModel):
                                                tb_logger, metrics_dict)
         return 0.
 
-    def nondist_validation(self, *args, **kwargs):
-        logger = get_root_logger()
-        logger.warning('nondist_validation is not implemented. Run dist_validation.')
-        self.dist_validation(*args, **kwargs)
+    def nondist_validation(self, dataloader, current_iter, tb_logger, save_img, rgb2bgr, use_image):
+        # logger = get_root_logger()
+        # logger.warning('nondist_validation is not implemented. Run dist_validation.')
+        # self.dist_validation(*args, **kwargs)
+
+
+        dataset_name = dataloader.dataset.opt['name']
+        with_metrics = self.opt['val'].get('metrics') is not None
+        if with_metrics:
+            self.metric_results = {
+                metric: 0
+                for metric in self.opt['val']['metrics'].keys()
+            }
+
+        rank, world_size = get_dist_info()
+        if rank == 0:
+            pbar = tqdm(total=len(dataloader), unit='image')
+
+        cnt = 0
+
+        for idx, val_data in enumerate(dataloader):
+            if idx % world_size != rank:
+                continue
+
+            img_name = osp.splitext(osp.basename(val_data['lq_path'][0]))[0]
+
+            self.feed_data(val_data, is_val=True)
+            if self.opt['val'].get('grids', False):
+                self.grids()
+
+            self.test()
+
+            if self.opt['val'].get('grids', False):
+                self.grids_inverse()
+
+            visuals = self.get_current_visuals()
+            sr_img = tensor2img([visuals['result']], rgb2bgr=rgb2bgr)
+            if 'gt' in visuals:
+                gt_img = tensor2img([visuals['gt']], rgb2bgr=rgb2bgr)
+                del self.gt
+
+            # tentative for out of GPU memory
+            del self.lq
+            del self.output
+            torch.cuda.empty_cache()
+
+            if save_img:
+                if sr_img.shape[2] == 6:
+                    L_img = sr_img[:, :, :3]
+                    R_img = sr_img[:, :, 3:]
+
+                    # visual_dir = osp.join('visual_results', dataset_name, self.opt['name'])
+                    visual_dir = osp.join(self.opt['path']['visualization'], dataset_name)
+
+                    imwrite(L_img, osp.join(visual_dir, f'{img_name}_L.png'))
+                    imwrite(R_img, osp.join(visual_dir, f'{img_name}_R.png'))
+                else:
+                    if self.opt['is_train']:
+
+                        save_img_path = osp.join(self.opt['path']['visualization'],
+                                                 img_name,
+                                                 f'{img_name}_{current_iter}.png')
+
+                        save_gt_img_path = osp.join(self.opt['path']['visualization'],
+                                                    img_name,
+                                                    f'{img_name}_{current_iter}_gt.png')
+                    else:
+                        save_img_path = osp.join(
+                            self.opt['path']['visualization'], dataset_name,
+                            f'{img_name}.png')
+                        save_gt_img_path = osp.join(
+                            self.opt['path']['visualization'], dataset_name,
+                            f'{img_name}_gt.png')
+
+                    imwrite(sr_img, save_img_path)
+                    imwrite(gt_img, save_gt_img_path)
+
+            if with_metrics:
+                # calculate metrics
+                opt_metric = deepcopy(self.opt['val']['metrics'])
+                if use_image:
+                    for name, opt_ in opt_metric.items():
+                        metric_type = opt_.pop('type')
+                        self.metric_results[name] += getattr(
+                            metric_module, metric_type)(sr_img, gt_img, **opt_)
+                else:
+                    for name, opt_ in opt_metric.items():
+                        metric_type = opt_.pop('type')
+                        self.metric_results[name] += getattr(
+                            metric_module, metric_type)(visuals['result'], visuals['gt'], **opt_)
+
+            cnt += 1
+            if rank == 0:
+                for _ in range(world_size):
+                    pbar.update(1)
+                    pbar.set_description(f'Test {img_name}')
+        if rank == 0:
+            pbar.close()
+
+        # current_metric = 0.
+        collected_metrics = OrderedDict()
+        if with_metrics:
+            for metric in self.metric_results.keys():
+                collected_metrics[metric] = torch.tensor(self.metric_results[metric]).float().to(self.device)
+            collected_metrics['cnt'] = torch.tensor(cnt).float().to(self.device)
+
+            self.collected_metrics = collected_metrics
+
+        keys = []
+        metrics = []
+        for name, value in self.collected_metrics.items():
+            keys.append(name)
+            metrics.append(value)
+        metrics = torch.stack(metrics, 0)
+        # torch.distributed.reduce(metrics, dst=0)
+        if self.opt['rank'] == 0:
+            metrics_dict = {}
+            cnt = 0
+            for key, metric in zip(keys, metrics):
+                if key == 'cnt':
+                    cnt = float(metric)
+                    continue
+                metrics_dict[key] = float(metric)
+
+            for key in metrics_dict:
+                metrics_dict[key] /= cnt
+
+            self._log_validation_metric_values(current_iter, dataloader.dataset.opt['name'],
+                                               tb_logger, metrics_dict)
+        return 0.
 
     def _log_validation_metric_values(self, current_iter, dataset_name,
                                       tb_logger, metric_dict):

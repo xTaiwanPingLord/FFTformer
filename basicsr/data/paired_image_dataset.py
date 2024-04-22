@@ -48,8 +48,6 @@ class PairedImageDataset(data.Dataset):
         # file client (io backend)
         self.file_client = None
         self.io_backend_opt = opt['io_backend']
-        self.mean = opt['mean'] if 'mean' in opt else None
-        self.std = opt['std'] if 'std' in opt else None
 
         self.gt_folder, self.lq_folder = opt['dataroot_gt'], opt['dataroot_lq']
         if 'filename_tmpl' in opt:
@@ -127,10 +125,6 @@ class PairedImageDataset(data.Dataset):
             sat_factor = 1 + (0.2 - 0.4 * np.random.rand())
             img_lq = TF.adjust_saturation(img_lq, sat_factor)
             img_gt = TF.adjust_saturation(img_gt, sat_factor)
-        # normalize
-        if self.mean is not None or self.std is not None:
-            normalize(img_lq, self.mean, self.std, inplace=True)
-            normalize(img_gt, self.mean, self.std, inplace=True)
 
         return {
             'lq': img_lq,

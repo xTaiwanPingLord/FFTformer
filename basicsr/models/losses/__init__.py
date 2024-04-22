@@ -1,5 +1,5 @@
-from .losses import (L1Loss, MSELoss, PSNRLoss,FFTLoss,EdgeLoss)
+from .losses import (CharbonnierLoss, L1Loss, MSELoss, PSNRLoss,FFTLoss,EdgeLoss)
 
 __all__ = [
-    'L1Loss', 'MSELoss', 'PSNRLoss','FFTLoss','EdgeLoss',
+    'CharbonnierLoss', 'L1Loss', 'MSELoss', 'PSNRLoss','FFTLoss','EdgeLoss',
 ]

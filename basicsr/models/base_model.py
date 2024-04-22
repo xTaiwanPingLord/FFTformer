@@ -294,12 +294,14 @@ class BaseModel():
                 'epoch': epoch,
                 'iter': current_iter,
                 'optimizers': [],
-                'schedulers': []
+                'schedulers': [],
+                'scaler': None
             }
             for o in self.optimizers:
                 state['optimizers'].append(o.state_dict())
             for s in self.schedulers:
                 state['schedulers'].append(s.state_dict())
+            state['scaler'] = self.scaler.state_dict()
             save_filename = f'{current_iter}.state'
             save_path = os.path.join(self.opt['path']['training_states'],
                                      save_filename)
@@ -321,6 +323,8 @@ class BaseModel():
             self.optimizers[i].load_state_dict(o)
         for i, s in enumerate(resume_schedulers):
             self.schedulers[i].load_state_dict(s)
+        if self.scaler is not None:
+            self.scaler.load_state_dict(resume_state['scaler'])
 
     def reduce_loss_dict(self, loss_dict):
         """reduce loss dict.
