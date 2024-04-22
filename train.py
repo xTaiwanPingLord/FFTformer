@@ -5,6 +5,7 @@ import math
 import random
 import time
 import torch
+import os
 from os import path as osp
 
 from basicsr.data import create_dataloader, create_dataset
@@ -17,6 +18,7 @@ from basicsr.utils import (MessageLogger, check_resume, get_env_info,
                            set_random_seed)
 from basicsr.utils.dist_util import get_dist_info, init_dist
 from basicsr.utils.options import dict2str, parse
+start_time = time.time()
 
 def parse_options(is_train=True):
     parser = argparse.ArgumentParser()
@@ -178,8 +180,8 @@ def main():
     logger, tb_logger = init_loggers(opt)
 
     # create train and validation dataloaders
-    result = create_train_val_dataloader(opt, logger)
-    train_loader, train_sampler, val_loader, total_epochs, total_iters = result
+    train_loader, train_sampler, val_loader, total_epochs, total_iters \
+        = create_train_val_dataloader(opt, logger)
 
     # create model
     if resume_state:  # resume training
@@ -293,8 +295,11 @@ def main():
     if tb_logger:
         tb_logger.close()
 
-
-if __name__ == '__main__':
-    import os
-    os.environ['GRPC_POLL_STRATEGY']='epoll1'
-    main()
+if __name__ == "__main__":
+    print(f"[INFO ] - PID: {os.getpid()} ----------------------------------------------------------------------------------------------------------------------------")
+    try:
+        os.environ['GRPC_POLL_STRATEGY']='epoll1'
+        main()
+    except KeyboardInterrupt:
+        print(f"[INFO ] - Task interrupted: = {(time.time() - start_time):5.2f} s")
+    print(f"[INFO ] - Task done: = {(time.time() - start_time):5.2f} s")
