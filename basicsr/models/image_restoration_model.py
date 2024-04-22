@@ -237,7 +237,7 @@ class ImageRestorationModel(BaseModel):
             
             self.scaler.step(self.optimizer_g)
             self.scaler.update()
-            self.optimizer_g.zero_grad()
+            self.optimizer_g.zero_grad(set_to_none=True)
 
         self.log_dict = self.reduce_loss_dict(loss_dict)
 
@@ -406,7 +406,7 @@ class ImageRestorationModel(BaseModel):
                 for metric in self.opt['val']['metrics'].keys()
             }
 
-        rank, world_size = get_dist_info()
+        rank, world_size = 0, 1 # get_dist_info()
         if rank == 0:
             pbar = tqdm(total=len(dataloader), unit='image')
 

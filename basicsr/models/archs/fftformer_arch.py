@@ -4,16 +4,13 @@ import torch.nn.functional as F
 import numbers
 from einops import rearrange
 
-@torch.compile
 def to_3d(x):
     return rearrange(x, 'b c h w -> b (h w) c')
 
-@torch.compile
 def to_4d(x, h, w):
     return rearrange(x, 'b (h w) c -> b c h w', h=h, w=w)
 
 class BiasFree_LayerNorm(nn.Module):
-    @torch.compile
     def __init__(self, normalized_shape):
         super(BiasFree_LayerNorm, self).__init__()
         if isinstance(normalized_shape, numbers.Integral):
@@ -25,7 +22,6 @@ class BiasFree_LayerNorm(nn.Module):
         self.weight = nn.Parameter(torch.ones(normalized_shape))
         self.normalized_shape = normalized_shape
 
-    @torch.compile
     def forward(self, x):
         sigma = x.var(-1, keepdim=True, unbiased=False)
         return x / torch.sqrt(sigma + 1e-5) * self.weight
