@@ -75,11 +75,16 @@ class DFFN(nn.Module):
         self.project_out = nn.Conv2d(hidden_features, dim, kernel_size=1, bias=bias)
 
     def forward(self, x):
-        x = self.project_in(x)
-        x_patch = rearrange(x, 'b c (h patch1) (w patch2) -> b c h w patch1 patch2', patch1=self.patch_size,
+        # x = self.project_in(x)
+        # x_patch = rearrange(x, 'b c (h patch1) (w patch2) -> b c h w patch1 patch2', patch1=self.patch_size,
+        #                     patch2=self.patch_size)
+        # x_patch_fft = torch.fft.rfft2(x_patch.float())
+        # x_patch_fft = x_patch_fft * self.fft
+        
+        x_patch = rearrange(self.project_in(x), 'b c (h patch1) (w patch2) -> b c h w patch1 patch2', patch1=self.patch_size,
                             patch2=self.patch_size)
-        x_patch_fft = torch.fft.rfft2(x_patch.float())
-        x_patch_fft = x_patch_fft * self.fft
+        x_patch_fft = torch.fft.rfft2(x_patch.float()) * self.fft
+        
         x_patch = torch.fft.irfft2(x_patch_fft, s=(self.patch_size, self.patch_size))
         x = rearrange(x_patch, 'b c h w patch1 patch2 -> b c (h patch1) (w patch2)', patch1=self.patch_size,
                       patch2=self.patch_size)
@@ -93,9 +98,10 @@ class FSAS(nn.Module):
     def __init__(self, dim, bias):
         super(FSAS, self).__init__()
 
+        self.dim = dim
         self.to_hidden = nn.Conv2d(dim, dim * 6, kernel_size=1, bias=bias)
         self.to_hidden_dw = nn.Conv2d(dim * 6, dim * 6, kernel_size=3, stride=1, padding=1, groups=dim * 6, bias=bias)
-
+        
         self.project_out = nn.Conv2d(dim * 2, dim, kernel_size=1, bias=bias)
 
         self.norm = LayerNorm(dim * 2, LayerNorm_type='WithBias')
@@ -103,18 +109,23 @@ class FSAS(nn.Module):
         self.patch_size = 8
 
     def forward(self, x):
-        hidden = self.to_hidden(x)
+        # hidden = self.to_hidden(x)
 
-        q, k, v = self.to_hidden_dw(hidden).chunk(3, dim=1)
+        # q, k, v = self.to_hidden_dw(hidden).chunk(3, dim=1)
 
-        q_patch = rearrange(q, 'b c (h patch1) (w patch2) -> b c h w patch1 patch2', patch1=self.patch_size,
-                            patch2=self.patch_size)
-        k_patch = rearrange(k, 'b c (h patch1) (w patch2) -> b c h w patch1 patch2', patch1=self.patch_size,
-                            patch2=self.patch_size)
-        q_fft = torch.fft.rfft2(q_patch.float())
-        k_fft = torch.fft.rfft2(k_patch.float())
+        # q_patch = F.conv2d(q_patch, torch.ones([self.self.dim *2, 1, self.patch_size*3, self.patch_size*3]), stride = self.patch_size, padding = self.patch_size, groups = self.dim *2)
+        # q_patch = rearrange(q, 'b c (h patch1) (w patch2) -> b c h w patch1 patch2', patch1=self.patch_size,
+        #                     patch2=self.patch_size)
+        # k_patch = rearrange(k, 'b c (h patch1) (w patch2) -> b c h w patch1 patch2', patch1=self.patch_size,
+        #                     patch2=self.patch_size)
+        # q_fft = torch.fft.rfft2(q_patch.float())
+        # k_fft = torch.fft.rfft2(k_patch.float())
 
-        out = q_fft * k_fft
+        q, k, v = self.to_hidden_dw(self.to_hidden(x)).chunk(3, dim=1)
+        
+        out = torch.fft.rfft2(rearrange(q, 'b c (h patch1) (w patch2) -> b c h w patch1 patch2', patch1=self.patch_size, patch2=self.patch_size).float()) \
+            * torch.fft.rfft2(rearrange(k, 'b c (h patch1) (w patch2) -> b c h w patch1 patch2', patch1=self.patch_size, patch2=self.patch_size).float())
+            
         out = torch.fft.irfft2(out, s=(self.patch_size, self.patch_size))
         out = rearrange(out, 'b c h w patch1 patch2 -> b c (h patch1) (w patch2)', patch1=self.patch_size,
                         patch2=self.patch_size)
