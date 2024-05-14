@@ -319,12 +319,12 @@ class BaseModel():
             self.optimizers), 'Wrong lengths of optimizers'
         assert len(resume_schedulers) == len(
             self.schedulers), 'Wrong lengths of schedulers'
-        for i, o in enumerate(resume_optimizers):
-            self.optimizers[i].load_state_dict(o)
-        for i, s in enumerate(resume_schedulers):
-            self.schedulers[i].load_state_dict(s)
-        if self.scaler is not None:
-            self.scaler.load_state_dict(resume_state['scaler'])
+        # for i, o in enumerate(resume_optimizers):
+        #     self.optimizers[i].load_state_dict(o)
+        # for i, s in enumerate(resume_schedulers):
+        #     self.schedulers[i].load_state_dict(s)
+        # if self.scaler is not None:
+        #     self.scaler.load_state_dict(resume_state['scaler'])
 
     def reduce_loss_dict(self, loss_dict):
         """reduce loss dict.
